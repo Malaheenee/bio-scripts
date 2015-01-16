@@ -24,7 +24,7 @@ GetOptions(
 ) or die $!;
 
 unless (@ARGV) {
-Error("Data file not present!");
+  Error("Data file not present!");
 }
 
 my $WorkDir = shift;
@@ -66,11 +66,11 @@ closedir(GB_DIR);
 print "$summ_sls stem-loop miRNAs collected.\n";
 
 open (DATA_FILE, ">>", $DataFile) or die ("Can't open file  $DataFile: $!");
-  print DATA_FILE "\nmiRNA\tGene\tExon-Intron (GENE)\tmiRBase\tGenBank\tPosition\n";
+  print DATA_FILE "\n\nmiRNA\tGene\tExon-Intron (GENE)\tmiRBase\tGenBank\tPosition\n";
 
 foreach $gb_file (@gb_files_list) {
   print "\n    Processing file $gb_file...";
-  print DATA_FILE "\n", $gb_file;
+  print DATA_FILE "\n\n", $gb_file;
   %mirnas_gbk = ();
   %genes_txt = ();
   %genes_gbk = ();
@@ -86,7 +86,7 @@ foreach $gb_file (@gb_files_list) {
   $mir_num = CollectmiRNAs("gbk", $gb_file);
   
   $genes_gbk{StartEnd_w_0}->{Full} = [1, $TempFileLength];
-  print " $summ_txt & $summ_gbk sequences & $mir_num miRNAs collected.\n";
+  print " $summ_txt (txt) & $summ_gbk (gbk) sequences & $mir_num miRNAs collected.\n";
 
   # Поиск по файлам GenBank
   if (defined $GBK) {
