@@ -25,7 +25,7 @@ GetOptions(
 ) or die $!;
 
 unless (@ARGV) {
-  Error("Data file not present!");
+  Error("Data dir not present!");
 }
 
 my $WorkDir = shift;
@@ -320,10 +320,18 @@ sub CollectGenes {
 
         for ($i = 0; $i <= $#nuc_pos_list; $i += 2 ) {
 
-          if ($nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"5-utr"}->[-1]) {$crd = "5-";}
-          elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[0] &&
-                 $nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[-1]) {$crd = "C-";}
-          elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"3-utr"}->[0]) {$crd = "3-";}
+          if ($complement eq "c") {
+            if ($nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"3-utr"}->[-1]) {$crd = "3-";}
+            elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[0] &&
+                   $nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[-1]) {$crd = "C-";}
+            elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"5-utr"}->[0]) {$crd = "5-";}
+          }
+          elsif ($complement eq "w") {
+            if ($nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"5-utr"}->[-1]) {$crd = "5-";}
+            elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[0] &&
+                   $nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[-1]) {$crd = "C-";}
+            elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"3-utr"}->[0]) {$crd = "3-";}
+          }
 
           next if $nuc_pos_list[$i] == $nuc_pos_list[-1];
 
@@ -336,6 +344,8 @@ sub CollectGenes {
 
           next if $nuc_pos_list[$i] == $nuc_pos_list[-2];
 
+          if ($complement eq "c") {$ein--;}
+
           $seq = "";
           seek (TEMP_FILE, ($nuc_pos_list[$i+1]-1), 0);
           read (TEMP_FILE, $seq, (($nuc_pos_list[$i+2]-1) - $nuc_pos_list[$i+1]), length($seq));
@@ -343,8 +353,7 @@ sub CollectGenes {
           $genes_txt{$gene}->{$crd."Intron".$ein} = $seq;
           $genes_txt{$gene}->{"Full"} .= $seq;
 
-          if ($complement eq "c") {$ein--;}
-          elsif ($complement eq "w") {$ein++;}
+          if ($complement eq "w") {$ein++;}
         }
       }
     close TEMP_FILE;
@@ -512,10 +521,16 @@ sub ReadGeneBankFile ($) {
       $lk3i[1]--;
       $lk3i[1] = $lk3i[0] if $lk3i[1] <= 0;
 
-      $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"5-utr"} = [@lk5[0], @lk5[-1]];
-      $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"Coding"} = [@lk7[0], @lk7[-1]];
-      $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"3-utr"} = [@lk3[0], @lk3[-1]];
-
+      if ($GenesInGeneBankFile{$GeneName}->{Information}->{Complementary} eq "c") {
+        $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"3-utr"} = [@lk5[0], @lk5[-1]];
+        $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"Coding"} = [@lk7[0], @lk7[-1]];
+        $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"5-utr"} = [@lk3[0], @lk3[-1]];
+      }
+      elsif ($GenesInGeneBankFile{$GeneName}->{Information}->{Complementary} eq "w") {
+        $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"5-utr"} = [@lk5[0], @lk5[-1]];
+        $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"Coding"} = [@lk7[0], @lk7[-1]];
+        $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"3-utr"} = [@lk3[0], @lk3[-1]];
+      }
   }
   return \%GenesInGeneBankFile;
 }
@@ -568,6 +583,9 @@ sub MakeTemp ($$) {
     while($ReadString = <GB_FILE>) {
       if($ReadString =~ m/ORIGIN/) {
         while($ReadString = <GB_FILE>) {
+          if ($ReadString =~ m/\[gap\s+(\d+).+\]/i) {
+            $ReadString = "n" x $1;
+          }
           $ReadString =~ s/\W//g;
           $ReadString =~ s/\d//g;
           print TEMP_FILE $ReadString;
@@ -598,7 +616,7 @@ sub UsageVersion ($) {
     print "Almaty, Kazakhstan\n\n";
   }
   elsif ($_[0] eq "help") {
-    print "\nUsage: $0 [options] [--file=<string>] directory\n\n";
+    print "\nUsage: $0 [options] [--mirfile=<string>] directory\n\n";
     print "Options:\n";
     print "-v, --version \t print version\n";
     print "-h, --help \t print this help text\n";
