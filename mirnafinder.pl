@@ -20,6 +20,7 @@ GetOptions(
 "txt|t"     => \$TXT,
 "int|i"     => \$INT,
 "seq|s"     => \$SEQ,
+"crd|c"     => \$CRD,
 "mirfile=s" => \$mirna_sls_file,
 ) or die $!;
 
@@ -358,55 +359,175 @@ sub CollectGenes {
     return ($summ_txt);
   }
   elsif ($Action =~ m/gbk/i) {
-    open (GB_FILE, "<", $gb_file) or die ("Can't open file  $WorkDir.$gb_file: $!");
-      while($gb_line = <GB_FILE>) {
-        if ($gb_line =~ m/$gb_keyword_gene/) {
-          $nuc_pos = "";
-          $nuc_seq = "";
-          $gene = "";
-          until($gb_line =~ m{/}) {
-            $nuc_pos .= $gb_line;
-            $gb_line = <GB_FILE>;
-          }
-          $gb_line =~ s/\s//g;
-          $gb_line =~ s/\"//g;
-          $gb_line =~ s{/}{}g;
-          $gene = $gb_line;
-          $gene =~ s/gene=//;
-          $gene =~ s/locus_tag=//;
-          $gene =~ s/[\:\*\?\"\<\>\|]/_/g;
-          $nuc_pos =~ s/$gb_keyword_gene//;
-          $nuc_pos =~ s/join//;
-          $nuc_pos =~ s/\s//g;
-          $nuc_pos =~ s/\(//g;
-          $nuc_pos =~ s/\)//g;
-          $nuc_pos =~ s/\<//g;
-          $nuc_pos =~ s/\>//g;
-          if ($nuc_pos =~ m/complement/) {$complement = "_c";}
-          else {$complement = "_w";}
-          $nuc_pos =~ s/complement//;
-          @nuc_pos_list0 = split(/,/, $nuc_pos);
-          splice @nuc_pos_list, 0;
-          foreach (@nuc_pos_list0) {push (@nuc_pos_list, split(/\.\./, $_));}
-          $summ_gbk++;
-          if ($gene !~ m/^MIR\d+/i) {
-            if ($complement eq "_c") {$ein = ($#nuc_pos_list+1)/2;}
-            elsif ($complement eq "_w") {$ein = 1;}
-            $genes_gbk{$gene.$complement."_".$summ_gbk}->{"Full"} = [$nuc_pos_list[0], $nuc_pos_list[-1]];
-            for ($i = 0; $i<=($#nuc_pos_list); $i += 2 ) {
-              if ($complement eq "_c") {$ein--;}
-              elsif ($complement eq "_w") {$ein++;}
-              next if $nuc_pos_list[$i] == $nuc_pos_list[-1];
-              $genes_gbk{$gene.$complement."_".$summ_gbk}->{"Exon".$ein} = [$nuc_pos_list[$i], $nuc_pos_list[$i + 1]];
-              next if $nuc_pos_list[$i] == $nuc_pos_list[-2];
-              $genes_gbk{$gene.$complement."_".$summ_gbk}->{"Intron".$ein} = [$nuc_pos_list[$i + 1], $nuc_pos_list[$i + 2]];
-            }
-          }
-        }
+   
+    $hash_ref = ReadGeneBankFile($gb_file);
+
+    foreach $z (keys %$hash_ref) {
+      $summ_gbk++;
+      $gene = $z;
+      $complement = $hash_ref->{$z}->{Information}->{Complementary};
+      @nuc_pos_list = @{$hash_ref->{$z}->{mRNA}->{Position}};
+      if ($complement eq "c") {$ein = ($#nuc_pos_list+1)/2;}
+      elsif ($complement eq "w") {$ein = 1;}
+
+      $genes_gbk{$gene}->{"Full"} = [$nuc_pos_list[0], $nuc_pos_list[-1]];
+      
+      for ($i = 0; $i <= $#nuc_pos_list; $i += 2 ) {
+        if ($complement eq "c") {$ein--;}
+        elsif ($complement eq "w") {$ein++;}
+
+        if ($nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"5-utr"}->[-1]) {$crd = "5-";}
+        elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[0] &&
+               $nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[-1]) {$crd = "C-";}
+        elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"3-utr"}->[0]) {$crd = "3-";}
+ 
+        next if $nuc_pos_list[$i] == $nuc_pos_list[-1];
+        
+        $genes_gbk{$gene}->{$crd."Exon".$ein} = [$nuc_pos_list[$i], $nuc_pos_list[$i + 1]];
+        
+        next if $nuc_pos_list[$i] == $nuc_pos_list[-2];
+        $genes_gbk{$gene}->{$crd."Intron".$ein} = [$nuc_pos_list[$i + 1], $nuc_pos_list[$i + 2]];
       }
-    close GB_FILE;
+    }
     return ($summ_gbk);
   }
+}
+
+########################################################
+# Parse GeneBank file
+########################################################
+sub ReadGeneBankFile ($) {
+  my $GeneBankFileName = shift;
+  my @SearchKeywords = (mRNA, CDS);
+  my ($Keyword, $Keyworde, $seq_num, $gb_line, $nuc_pos,
+      $nuc_seq, $gene, $a1, $a2, $a3, $gene_num, $sec_num,
+      $i, $j, $GeneName, $note, $complement) = "";
+  my (@nuc_pos_list, @posV, @lk1, @lk2, @lk3, @lk5, @lk7, @lk3i, @lk5i, @lk7i);
+  my (%seen, %seen2) = ();
+  
+  my %GenesInGeneBankFile = ();
+  
+  open (GB_FILE, "<", $GeneBankFileName) or die ("Can't open file $GeneBankFileName: $!");
+  foreach $Keyword (@SearchKeywords) {
+    $Keyworde = "  ".$Keyword."  ";
+    seek (GB_FILE, 0, 0);
+    $seq_num = 0;
+    while($gb_line = <GB_FILE>) {
+      if ($gb_line =~ m/$Keyworde/) {
+        $gene_num = 0;
+        $nuc_pos = "";
+        $nuc_seq = "";
+        $note = "";
+        $gene = "";
+        until($gb_line =~ m{/}) {
+          $nuc_pos .= $gb_line;
+          $gb_line = <GB_FILE>;
+        }
+        $gb_line =~ s/\s//g;
+        $gb_line =~ s/\"//g;
+        $gb_line =~ s{/}{}g;
+        $gb_line =~ s/\/gene=//;
+        $gene = $gb_line;
+        $gene =~ s/gene=//;
+        $gene =~ s/locus_tag=//;
+        $gene =~ s/[\;\:\*\?\"\<\>\|]/_/g;
+        $nuc_pos =~ s/$Keyword//;
+        $nuc_pos =~ s/join//;
+        $nuc_pos =~ s/\s//g;
+        $nuc_pos =~ s/\(//g;
+        $nuc_pos =~ s/\)//g;
+        $nuc_pos =~ s/\<//g;
+        $nuc_pos =~ s/\>//g;
+        if ($nuc_pos =~ m/complement/) {$complement = "c";}
+        else {$complement = "w";}
+        $nuc_pos =~ s/complement//;
+        @nuc_pos_list = split(/,/, $nuc_pos);
+        splice @posV, 0;
+        foreach (@nuc_pos_list) {push (@posV, split(/\.\./, $_));}
+        $seq_num++;
+        $GenesInGeneBankFile{$gene."_".$complement."_".$seq_num}->{$Keyword}->{Position} = [@posV];
+        $GenesInGeneBankFile{$gene."_".$complement."_".$seq_num}->{Information}->{Complementary} = $complement;
+      }
+    }
+  }
+  close GB_FILE;
+  
+  foreach $GeneName (sort keys %GenesInGeneBankFile) {
+    next unless exists $GenesInGeneBankFile{$GeneName}->{mRNA};
+    next unless exists $GenesInGeneBankFile{$GeneName}->{CDS};
+
+      splice @lk1, 0;
+      %seen = ();
+      foreach $a2 (@{$GenesInGeneBankFile{$GeneName}->{CDS}->{Position}}) {
+        $seen{$a2} = 1;
+      }
+      foreach $a3 (@{$GenesInGeneBankFile{$GeneName}->{mRNA}->{Position}}) {
+        unless ($seen{$a3}) {
+          push (@lk1, $a3);
+        }
+      }
+      if ($#lk1 == 0) {
+        $lk1[1] = $lk1[0];
+        $lk1[0] = 1;
+      }
+      
+      splice @lk2, 0;
+      %seen2 = ();
+      foreach $a2 (@{$GenesInGeneBankFile{$GeneName}->{mRNA}->{Position}}) {
+        $seen2{$a2} = 1;
+      }
+      foreach $a3 (@{$GenesInGeneBankFile{$GeneName}->{CDS}->{Position}}) {
+        unless ($seen2{$a3}) {
+          push (@lk2, $a3);
+        }
+      }
+      if ($#lk2 == 0) {
+        $lk2[1] = $lk2[0];
+        $lk2[0] = 1;
+      }
+
+      splice @lk5, 0;
+      splice @lk3, 0;
+      push (@lk3, $lk2[-1]);
+      for ($i = 0; $i <= $#lk1; $i++) {
+        for ($j = 0; $j <= $#lk2; $j++) {
+          if (($lk2[$j] > $lk1[$i]) && ($lk1[$i] < $lk2[0])) {splice (@lk5, $i, 1, $lk1[$i]);}
+          elsif (($lk2[$j] < $lk1[$i]) && ($lk3[-1] != $lk1[$i]) && ($lk1[$i] > $lk2[-1])) {splice (@lk3, $i, 1, $lk1[$i]);}
+        }
+      }
+      push (@lk5, $lk2[0]);
+
+      splice @lk5i, 0;
+      $lk5i[0] = 1;
+      $lk5i[1] = 0;
+      for ($i = 0; $i <= $#lk5; $i += 2) {
+        $lk5i[1] += $lk5[$i+1] - ($lk5[$i] - 1);
+      }
+      $lk5i[1]-- if $lk5i[1] >= 1;
+      $lk5i[0]-- if $lk5i[1] <= 0;
+      
+      @lk7 = @{$GenesInGeneBankFile{$GeneName}->{CDS}->{Position}};
+      splice @lk7i, 0;
+      $lk7i[0] = $lk7i[1] = $lk5i[1]+1;
+      for ($i = 0; $i <= $#lk7; $i += 2) {
+        $lk7i[1] += $lk7[$i+1] - ($lk7[$i] - 1);
+      }
+      $lk7i[1]--;
+      
+      splice @lk3i, 0;
+      $lk3i[0] = $lk3i[1] = $lk7i[1]+1;
+      for ($i = 0; $i <= $#lk3; $i += 2) {
+        $lk3i[1] += $lk3[$i+1] - ($lk3[$i] - 1);
+      }
+      $lk3i[1]--;
+      $lk3i[1] = $lk3i[0] if $lk3i[1] <= 0;
+
+      $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"5-utr"} = [@lk5[0], @lk5[1]];
+      $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"Coding"} = [@lk7[0], @lk7[1]];
+      $GenesInGeneBankFile{$GeneName}->{mRNA}->{Information}->{"3-utr"} = [@lk3[0], @lk3[1]];
+
+  }
+  return \%GenesInGeneBankFile;
 }
 
 ########################################################
@@ -495,6 +616,7 @@ sub UsageVersion ($) {
     print "-t, --txt \t search miRNA in sequences\n";
     print "-i, --int \t search intergenic miRNA in gbk files\n";
     print "-s, --seq \t search intergenic miRNA in global seqeunce (very, very slow!)\n";
+    print "-c, --crd \t define coordinates of miRNA\n";
     print "--mirfile=<string>  file with miRNA sequences (default \"mirna_sls_t.txt\")\n";
     print "\nReport bugs to ", 'malaheenee@gmx.fr', "\n\n";
   }
