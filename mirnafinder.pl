@@ -81,11 +81,11 @@ foreach $gb_file (@gb_files_list) {
   %Founded_ig_txt = ();
 
   ($TempFile, $TempFileLength) = MakeTemp($gb_file, $WorkDir);
-  
+
   $summ_gbk = CollectGenes("gbk", $gb_file) if defined $GBK;
   $summ_txt = CollectGenes("txt", $gb_file) if defined $TXT;
   $mir_num = CollectmiRNAs("gbk", $gb_file) if defined $GBK;
-  
+
   $genes_gbk{StartEnd_w_0}->{Full} = [1, $TempFileLength];
   print " $summ_txt (txt) & $summ_gbk (gbk) sequences & $mir_num miRNAs collected.\n";
 
@@ -140,7 +140,7 @@ foreach $gb_file (@gb_files_list) {
     }
     print "Ready.\n";
   }
-  
+
   # Поиск межгенных микроРНК по файлам GenBank
   if (defined $INT) {
     print "\n    Searching miRNAs between genes in gbk files... ";
@@ -271,7 +271,7 @@ sub CollectmiRNAs {
           else {$complement = "_w";}
           $nuc_pos =~ s/complement//;
           @nuc_pos_list = split(/\.\./, $nuc_pos);
-          
+
           $gb_line = <GB_FILE>;
           while ($gb_line =~ m{/}) {
             $note .= $gb_line;
@@ -279,7 +279,7 @@ sub CollectmiRNAs {
           }
           if ($note =~ m/mirbase/i) {$mir_src = "_mrb";}
           else {$mir_src = "_cmp";}
-       
+
           if ($note =~ m/miRNA/g) {
             $mir_num++;
             $mirnas_gbk{$gene.$complement.$mir_src.$mir_num} = [@nuc_pos_list];
@@ -300,7 +300,7 @@ sub CollectGenes {
   my ($summ_txt, $summ_gbk) = 0;
   my ($seq_num, $num) = 0;
   my $hash_ref = ReadGeneBankFile($gb_file);
-  
+
   if ($Action =~ m/txt/i) {
     open (TEMP_FILE, "<", $TempFile) or die ("Can't open file  $TempFile: $!");
       foreach $z (keys %$hash_ref) {
@@ -311,37 +311,40 @@ sub CollectGenes {
 
         if ($complement eq "c") {$ein = ($#nuc_pos_list+1)/2;}
         elsif ($complement eq "w") {$ein = 1;}
-        
-        $seq = "";
-        seek (TEMP_FILE, ($nuc_pos_list[0]-1), 0);
-        read (TEMP_FILE, $seq, ($nuc_pos_list[-1] - ($nuc_pos_list[0]-1)), length($seq));
-        $seq = NucCompl($seq, "CR") if $complement eq "c";
-        $genes_txt{$gene}->{"Full"} = $seq;
-        
+
+#        $seq = "";
+#        seek (TEMP_FILE, ($nuc_pos_list[0]-1), 0);
+#        read (TEMP_FILE, $seq, ($nuc_pos_list[-1] - ($nuc_pos_list[0]-1)), length($seq));
+#        $seq = NucCompl($seq, "CR") if $complement eq "c";
+#        $genes_txt{$gene}->{"Full"} = $seq;
+
         for ($i = 0; $i <= $#nuc_pos_list; $i += 2 ) {
-          if ($complement eq "c") {$ein--;}
-          elsif ($complement eq "w") {$ein++;}
 
           if ($nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"5-utr"}->[-1]) {$crd = "5-";}
           elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[0] &&
                  $nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[-1]) {$crd = "C-";}
           elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"3-utr"}->[0]) {$crd = "3-";}
- 
+
           next if $nuc_pos_list[$i] == $nuc_pos_list[-1];
-        
+
           $seq = "";
           seek (TEMP_FILE, ($nuc_pos_list[$i]-1), 0);
           read (TEMP_FILE, $seq, ($nuc_pos_list[$i+1] - ($nuc_pos_list[$i]-1)), length($seq));
           $seq = NucCompl($seq, "CR") if $complement eq "c";
           $genes_txt{$gene}->{$crd."Exon".$ein} = $seq;
-        
+          $genes_txt{$gene}->{"Full"} .= $seq;
+
           next if $nuc_pos_list[$i] == $nuc_pos_list[-2];
-          
+
           $seq = "";
           seek (TEMP_FILE, ($nuc_pos_list[$i+1]-1), 0);
           read (TEMP_FILE, $seq, (($nuc_pos_list[$i+2]-1) - $nuc_pos_list[$i+1]), length($seq));
           $seq = NucCompl($seq, "CR") if $complement eq "c";
           $genes_txt{$gene}->{$crd."Intron".$ein} = $seq;
+          $genes_txt{$gene}->{"Full"} .= $seq;
+
+          if ($complement eq "c") {$ein--;}
+          elsif ($complement eq "w") {$ein++;}
         }
       }
     close TEMP_FILE;
@@ -357,22 +360,22 @@ sub CollectGenes {
       elsif ($complement eq "w") {$ein = 1;}
 
       $genes_gbk{$gene}->{"Full"} = [$nuc_pos_list[0], $nuc_pos_list[-1]];
-      
+
       for ($i = 0; $i <= $#nuc_pos_list; $i += 2 ) {
         if ($complement eq "c") {$ein--;}
         elsif ($complement eq "w") {$ein++;}
-          
+
         if ($nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"5-utr"}->[-1]) {$crd = "5-";}
         elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[0] &&
                $nuc_pos_list[$i] <= $hash_ref->{$z}->{mRNA}->{Information}->{"Coding"}->[-1]) {$crd = "C-";}
         elsif ($nuc_pos_list[$i] >= $hash_ref->{$z}->{mRNA}->{Information}->{"3-utr"}->[0]) {$crd = "3-";}
- 
+
         next if $nuc_pos_list[$i] == $nuc_pos_list[-1];
-        
+
         $genes_gbk{$gene}->{$crd."Exon".$ein} = [$nuc_pos_list[$i], $nuc_pos_list[$i+1]];
-        
+
         next if $nuc_pos_list[$i] == $nuc_pos_list[-2];
-        
+
         $genes_gbk{$gene}->{$crd."Intron".$ein} = [$nuc_pos_list[$i+1], $nuc_pos_list[$i+2]];
       }
     }
@@ -391,9 +394,9 @@ sub ReadGeneBankFile ($) {
       $i, $j, $GeneName, $note, $complement) = "";
   my (@nuc_pos_list, @posV, @lk1, @lk2, @lk3, @lk5, @lk7, @lk3i, @lk5i, @lk7i);
   my (%seen, %seen2) = ();
-  
+
   my %GenesInGeneBankFile = ();
-  
+
   open (GB_FILE, "<", $GeneBankFileName) or die ("Can't open file $GeneBankFileName: $!");
   foreach $Keyword (@SearchKeywords) {
     $Keyworde = "  ".$Keyword."  ";
@@ -438,7 +441,7 @@ sub ReadGeneBankFile ($) {
     }
   }
   close GB_FILE;
-  
+
   foreach $GeneName (sort keys %GenesInGeneBankFile) {
     next unless exists $GenesInGeneBankFile{$GeneName}->{mRNA};
     next unless exists $GenesInGeneBankFile{$GeneName}->{CDS};
@@ -457,7 +460,7 @@ sub ReadGeneBankFile ($) {
         $lk1[1] = $lk1[0];
         $lk1[0] = 1;
       }
-      
+
       splice @lk2, 0;
       %seen2 = ();
       foreach $a2 (@{$GenesInGeneBankFile{$GeneName}->{mRNA}->{Position}}) {
@@ -492,7 +495,7 @@ sub ReadGeneBankFile ($) {
       }
       $lk5i[1]-- if $lk5i[1] >= 1;
       $lk5i[0]-- if $lk5i[1] <= 0;
-      
+
       @lk7 = @{$GenesInGeneBankFile{$GeneName}->{CDS}->{Position}};
       splice @lk7i, 0;
       $lk7i[0] = $lk7i[1] = $lk5i[1]+1;
@@ -500,7 +503,7 @@ sub ReadGeneBankFile ($) {
         $lk7i[1] += $lk7[$i+1] - ($lk7[$i] - 1);
       }
       $lk7i[1]--;
-      
+
       splice @lk3i, 0;
       $lk3i[0] = $lk3i[1] = $lk7i[1]+1;
       for ($i = 0; $i <= $#lk3; $i += 2) {
@@ -526,7 +529,7 @@ sub NucCompl ($$) {
   my $ReverseComplement = uc($_[1]);
   my @symbols = undef;
   my $i = 0;
- 
+
   if ($ReverseComplement =~ m/C/) {
   @symbols = split (//, $Sequence);
     for ($i = 0; $i < ($#symbols+1); $i++) {
