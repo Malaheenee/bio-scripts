@@ -529,9 +529,9 @@ sub ReadGeneBankFile ($@) {
     next unless exists $GenesInGeneBankFile{$GeneName}->{CDS};
     for ($a1 = 1; $a1 <= $#{$GenesInGeneBankFile{$GeneName}->{mRNA}}; $a1++) {
 
-      print "\n", $GeneName, ,"-", $a1, "-", $GenesInGeneBankFile{$GeneName}->{Information}->{Complementary};
-      print "\nmRNA"; foreach (@{$GenesInGeneBankFile{$GeneName}->{mRNA}->[$a1]->{Position}}) {print "-", $_;}
-      print "\nCDS"; foreach (@{$GenesInGeneBankFile{$GeneName}->{CDS}->[$a1]->{Position}}) {print "-", $_;}
+      #print "\n", $GeneName, ,"-", $a1, "-", $GenesInGeneBankFile{$GeneName}->{Information}->{Complementary};
+      #print "\nmRNA"; foreach (@{$GenesInGeneBankFile{$GeneName}->{mRNA}->[$a1]->{Position}}) {print "-", $_;}
+      #print "\nCDS"; foreach (@{$GenesInGeneBankFile{$GeneName}->{CDS}->[$a1]->{Position}}) {print "-", $_;}
 
       splice @lk1, 0;
       %seen = ();
@@ -547,7 +547,7 @@ sub ReadGeneBankFile ($@) {
 #        $lk1[1] = $lk1[0];
 #        $lk1[0] = 1;
 #      }
-      print "\nlk1"; foreach (@lk1) {print "-", $_;}
+      #print "\nlk1"; foreach (@lk1) {print "-", $_;}
       
       splice @lk2, 0;
       %seen2 = ();
@@ -563,7 +563,7 @@ sub ReadGeneBankFile ($@) {
 #        $lk2[1] = $lk2[0];
 #        $lk2[0] = 1;
 #      }
-      print "\nlk2"; foreach (@lk2) {print "-", $_;}
+      #print "\nlk2"; foreach (@lk2) {print "-", $_;}
 
       splice @lk5, 0;
       splice @lk3, 0;
@@ -586,9 +586,9 @@ sub ReadGeneBankFile ($@) {
       
       @lk7 = @{$GenesInGeneBankFile{$GeneName}->{CDS}->[$a1]->{Position}};
 
-      print "\nlk5"; foreach (@lk5) {print "-", $_;}
-      print "\nlk7"; foreach (@lk7) {print "-", $_;}
-      print "\nlk3"; foreach (@lk3) {print "-", $_;}
+      #print "\nlk5"; foreach (@lk5) {print "-", $_;}
+      #print "\nlk7"; foreach (@lk7) {print "-", $_;}
+      #print "\nlk3"; foreach (@lk3) {print "-", $_;}
 
       if ($GenesInGeneBankFile{$GeneName}->{Information}->{Complementary} eq "c") {
         splice @lk3i, 0;
@@ -605,7 +605,7 @@ sub ReadGeneBankFile ($@) {
         $lk3i[1]-- if $lk3i[1] >= 1;
         $lk3i[0]-- if $lk3i[1] <= 0;
 #        $lk3i[1] = $lk3i[0] if $lk3i[1] <= 0;
-        print "\nlk3i"; foreach (@lk3i) {print "-", $_;}
+        #print "\nlk3i"; foreach (@lk3i) {print "-", $_;}
       
         splice @lk7i, 0;
         $lk7i[0] = $lk7i[1] = $lk3i[1]+1;
@@ -618,7 +618,7 @@ sub ReadGeneBankFile ($@) {
           }
         }
         $lk7i[1]--;
-        print "\nlk7i"; foreach (@lk7i) {print "-", $_;}
+        #print "\nlk7i"; foreach (@lk7i) {print "-", $_;}
 
         splice @lk5i, 0;
         $lk5i[0] = $lk5i[1] = $lk7i[1]+1;
@@ -634,7 +634,7 @@ sub ReadGeneBankFile ($@) {
 #        $lk5i[0]-- if $lk5i[1] <= 0;
         $lk5i[1]--;
         $lk5i[1] = $lk5i[0] if $lk5i[1] <= 0;
-        print "\nlk5i"; foreach (@lk5i) {print "-", $_;}
+        #print "\nlk5i"; foreach (@lk5i) {print "-", $_;}
           
         $GenesInGeneBankFile{$GeneName}->{mRNA}->[$a1]->{Information}->{"5-utr"} = "$lk3i[0]-$lk3i[1]";
         $GenesInGeneBankFile{$GeneName}->{mRNA}->[$a1]->{Information}->{"Coding"} = "$lk7i[0]-$lk7i[1]";
@@ -654,7 +654,7 @@ sub ReadGeneBankFile ($@) {
         }
         $lk5i[1]-- if $lk5i[1] >= 1;
         $lk5i[0]-- if $lk5i[1] <= 0;
-        print "\nlk5i"; foreach (@lk5i) {print "-", $_;}
+        #print "\nlk5i"; foreach (@lk5i) {print "-", $_;}
       
         splice @lk7i, 0;
         $lk7i[0] = $lk7i[1] = $lk5i[1]+1;
@@ -667,7 +667,7 @@ sub ReadGeneBankFile ($@) {
           }
         }
         $lk7i[1]--;
-        print "\nlk7i"; foreach (@lk7i) {print "-", $_;}
+        #print "\nlk7i"; foreach (@lk7i) {print "-", $_;}
 
         splice @lk3i, 0;
         $lk3i[0] = $lk3i[1] = $lk7i[1]+1;
@@ -681,7 +681,7 @@ sub ReadGeneBankFile ($@) {
         }
         $lk3i[1]--;
         $lk3i[1] = $lk3i[0] if $lk3i[1] <= 0;
-        print "\nlk3i"; foreach (@lk3i) {print "-", $_;}
+        #print "\nlk3i"; foreach (@lk3i) {print "-", $_;}
 
         $GenesInGeneBankFile{$GeneName}->{mRNA}->[$a1]->{Information}->{"5-utr"} = "$lk5i[0]-$lk5i[1]";
         $GenesInGeneBankFile{$GeneName}->{mRNA}->[$a1]->{Information}->{"Coding"} = "$lk7i[0]-$lk7i[1]";
