@@ -2,41 +2,25 @@
 
 # Automated work with RNAhybrid
 
-use File::Basename;
-use Statistics::Distributions;
+# Check the code
+use strict;
+use warnings;
+
+# Import modules
+use Cwd 'abs_path', 'cwd';
+use File::Basename 'fileparse';
+use Statistics::Distributions 'tprob';
 use Getopt::Long;
 Getopt::Long::Configure 'gnu_getopt', 'no_auto_abbrev', 'no_ignore_case';
 
-GetOptions(
-"help|h" => sub {UsageVersion($_[0])},
-"b=i"    => \$HitNumber,
-"r"      => \$Restrict,
-"d"      => \$DifferentReuslts,
-"v"      => \$BeVerbose,
-"seed=i" => \$SeedSearch,
-) or die $!;
-
-unless (@ARGV) {
-print "Data dir not present!\n";
-exit 1;
-}
-
-my $PNAME = "RNAhybrid enhanced 21";
-
-$WorkDir = shift;
-$HitNumber = 5 if $HitNumber eq undef;
-$Restrict = 0 if $Restrict eq undef;
-$SeedSearch = 0 if $SeedSearch eq undef;
-$DifferentReuslts = 0 if $DifferentReuslts eq undef;
-$BeVerbose = 0 if $BeVerbose eq undef;
-my $Splitter = "\t";
-my (@MirFiles, @MirPos, @GeneFiles, @GenePos, @stringst, @stringse,
-@stringsp, @stringsm);
-my ($gcd, $gp, $mcd, $x1, $x1d, $x2, $x2d, $x2mn, $x2q, $x2qc, $x3, $x4,
-$x5, $x5old, $x6, $x6old, $x7s, $x7l, $string, $strings, $delta, $sd, $t, $p, $po,
-$pr, $score, $r);
-my (%MirInfo, %GeneInfo, %CalculatedGenes);
-my %Restrictions = (
+# Define variables
+my ($hit_number, $different_results, $seed_search, $all_in_one,
+    $work_dir, $file, $content, $string, $gene, $mir, $mfe, $pos,
+    $tmp, $num, $delta, $value_sd, $value_t, $value_p, $score);
+my (@seq_files, @pos);
+my (%mir_info, %gene_info);
+my ($length, $max_mir_len, $max_gene_len) = (0, 0, 0);
+my %restrictions = (
   "27" => [70,   5.15],
   "26" => [71,   3.05],
   "25" => [72,   2.16],
@@ -50,345 +34,297 @@ my %Restrictions = (
   "17" => [82.5, 1.53],
   "16" => [85,   1.67]);
 
-print $PNAME, "\n";
+# Parse command-line options
+GetOptions(
+  "help|h" => sub {use_ver($_[0])},
+  "b=i"    => \$hit_number,
+  "s=i"    => \$seed_search,
+  "a"      => \$all_in_one,
+  "d"      => \$different_results,
+) or die $!;
+$hit_number = 5        if not $hit_number;
+$seed_search = 0       if not $seed_search;
+$all_in_one = 0        if not $all_in_one;
+$different_results = 0 if not $different_results;
 
-opendir(WORK_DIR, $WorkDir);
-  @MirFiles = grep {/\.mir/i} readdir(WORK_DIR);
+# Set work dir
+if ( @ARGV ) {
+  $work_dir = abs_path(shift);
+  if (not -d $work_dir) {
+    print "The directory $work_dir not exists!\n";
+    exit -1;
+  }
+}
+else {
+  $work_dir = cwd();
+}
+print "The current work dir is $work_dir.\n";
+
+# Prepare miRNAs
+print "Looking for miRNAs \(\.mir\)... ";
+opendir(WORK_DIR, $work_dir);
+  @seq_files = grep {/\.mir/i} readdir(WORK_DIR);
 closedir(WORK_DIR);
 
-if ($#MirFiles == -1) {
+if ( $#seq_files == -1 ) {
   print "No miRNAs found!\n";
-  exit 1;
+  exit -1;
 }
 
-foreach $x2 (@MirFiles) {
-  $x2d = $WorkDir.$x2;
-  $strings = "";
-  open (MIR_FILE, "<", $x2d) or die "$!";
-    while($string = <MIR_FILE>) {
-      chomp($string);
-        if ($string !~ m/^\>/) {
-          $strings .= $string;
-        }
-        else {
-          $string =~ s/^\>//;
-          @MirPos = split (/$Splitter/, $string);
-#          $mcd = splice @MirPos, 0, 1;
-          $MirPos[0] =~ s/\s//g;
-        }
+foreach $file ( @seq_files ) {
+  open(MIR_FILE, "<", $work_dir."/".$file) or die "$!";
+    while ( $string = <MIR_FILE> ) {
+      $content = "";
+      if ( $string =~ m/\;/ ) {
+        @pos = split(/\;/, $string);
       }
-    $x6 = $strings =~ tr/ACGTUacgtu//;
-    $x6old = $x6 if $x6 > $x6old;
-    $MirInfo{$MirPos[0]}->{"Length"} = $x6;
-    $MirInfo{$MirPos[0]}->{"GC"} = ($strings =~ tr/GgCc//)/$x6;
-    $MirInfo{$MirPos[0]}->{"MRB-code"} = $MirPos[1];
-    $MirInfo{$MirPos[0]}->{"Gene-ori"} = $MirPos[2];
-    $MirInfo{$MirPos[0]}->{"Chr"} = $MirPos[3];
+      elsif ( $string =~ m/^\>/ ) {
+          until($string !~ m/^\>/) {
+            $content .= $string;
+            $string = <MIR_FILE>;
+          }
+         $content .= $string;
+         @pos = split(/\s/, $content);
+      }
+      foreach ( @pos ) {
+        $_ =~ s/\>|\s//g;
+      }
+      $mir_info{$pos[0]}->{"Sequence"} = $pos[-1];
+      $length = length($pos[-1]);
+      $max_mir_len = $length if $length > $max_mir_len;
+      $mir_info{$pos[0]}->{"Length"} = $length;
+      $mir_info{$pos[0]}->{"GC"} = ($pos[-1] =~ tr/GgCc//)/$length;
+      $mir_info{$pos[0]}->{"MRB-code"} = $pos[1] ? $pos[1] : "";
+      $mir_info{$pos[0]}->{"Gene-origin"} = $pos[2] ? $pos[2] : "";
+      $mir_info{$pos[0]}->{"Chromosome"} = $pos[3] ? $pos[3] : "";
+    }
   close MIR_FILE;
 }
-$x6 = $x6old if $x6old > $x6;
-print $#MirFiles+1, " miRNAs found. Max length: $x6.\n";
+print scalar(keys(%mir_info)), " miRNAs found. Max length: $max_mir_len.\n";
+@seq_files = undef;
 
-opendir(WORK_DIR, $WorkDir);
-  @GeneFiles = grep {/\.gene/i} readdir(WORK_DIR);
+# Prepare genes
+print "Looking for genes \(\.gene\)... ";
+opendir(WORK_DIR, $work_dir);
+  @seq_files = grep {/\.gene/i} readdir(WORK_DIR);
 closedir(WORK_DIR);
 
-if ($#GeneFiles == -1) {
+if ( $#seq_files == -1 ) {
   print "No genes found!\n";
-  exit 1;
+  exit -1;
 }
 
-foreach $x1 (@GeneFiles) {
-  $x1d = $WorkDir.$x1;
-  $strings = "";
-  open (GENE_FILE, "<", $x1d) or die "$!";
-    while ($string = <GENE_FILE>) {
+foreach $file ( @seq_files ) {
+  $content = "";
+  $file = $work_dir."/".$file;
+  open(GENE_FILE, "<", $file) or die "$!";
+    while ( $string = <GENE_FILE> ) {
       chomp($string);
         if ($string !~ m/^\>/) {
           $string =~ s/\W//g;
           $string =~ s/\d//g;
-          $strings .= $string;
+          $content .= $string;
         }
         else {
           $string =~ s/^\>//;
-          @GenePos = split (/ \| /, $string);  #
-          $gcd = splice @GenePos, 0, 1;
-          $gcd =~ s/\s//g;
-#          $GeneInfo{$gcd}->{"Coord"};
-          foreach $gp (@GenePos) {
-            $gp =~ s/\s//g;
-            push (@{${$GeneInfo{$gcd}}{"Coord"}}, split(/-/, $gp));
+          @pos = split(/\s\|\s/, $string);
+          $gene = shift(@pos);
+          $gene =~ s/\s//g;
+          for (my $i = 0; $i <= $#pos; $i++) {
+            $pos[$i] =~ s/\s//g;
+            splice(@pos, $i, 1, split(/\-/, $pos[$i]));
           }
         }
       }
-    $x5 = length($strings);
-    $x5old = $x5 if $x5 > $x5old;
-    $GeneInfo{$gcd}->{"Length"} = $x5;
-    if ($DifferentReuslts > 0) {
-      $GeneInfo{$gcd}->{"GC"}->{"5-utr"} = $GeneInfo{$gcd}->{"GC"}->{"cds"} = $GeneInfo{$gcd}->{"GC"}->{"3-utr"} = 0;
-      $x7s = substr($strings, ($GeneInfo{$gcd}->{"Coord"}->[0]-1), $GeneInfo{$gcd}->{"Coord"}->[1]);
-      $x7l = length($x7s);
-      $GeneInfo{$gcd}->{"GC"}->{"5-utr"} = ($x7s=~ tr/GgCc//)/$x7l if $x7l ne 0;
-      $x7s = substr($strings, ($GeneInfo{$gcd}->{"Coord"}->[2]-1), ($GeneInfo{$gcd}->{"Coord"}->[3]-($GeneInfo{$gcd}->{"Coord"}->[2]-1)));
-      $x7l = length($x7s);
-      $GeneInfo{$gcd}->{"GC"}->{"cds"} = ($x7s=~ tr/GgCc//)/$x7l if $x7l ne 0;
-      $x7s = substr($strings, ($GeneInfo{$gcd}->{"Coord"}->[4]-1), $GeneInfo{$gcd}->{"Coord"}->[5]);
-      $x7l = length($x7s);
-      $GeneInfo{$gcd}->{"GC"}->{"3-utr"} = ($x7s=~ tr/GgCc//)/$x7l if $x7l ne 0;
+    $gene_info{$gene}->{"Sequence"} = $content;
+    $length = length($content);
+    $max_gene_len = $length if $length > $max_gene_len;
+    $gene_info{$gene}->{"Length"} = $length;
+    $gene_info{$gene}->{"GC"}->{"All"} = ($content =~ tr/GgCc//)/$length;
+    $gene_info{$gene}->{"Coord"} = [@pos];
+    $gene_info{$gene}->{"File"} = $file;
+
+    if ( $different_results > 0 ) {
+      for (my $i = 0; $i <= $#pos; $i += 2) {
+        splice(@pos, $i, 1, substr($content, $pos[$i]-1, ($pos[$i+1]-($pos[$i]-1))));
+      }
+      foreach ( "5-utr", "3-utr", "cds" ) {
+        $gene_info{$gene}->{"GC"}->{$_} = 0;
+        $string = shift(@pos);
+        $tmp = shift(@pos);
+        $length = length($string);
+        $gene_info{$gene}->{"GC"}->{$_} = ($string =~ tr/GgCc//)/$length if $length ne 0;
+      }
     }
-    $GeneInfo{$gcd}->{"GC"}->{"All"} = ($strings =~ tr/GgCc//)/$x5;
   close GENE_FILE;
 }
-$x5 = $x5old if $x5old > $x5;
-print $#GeneFiles+1, " genes found. Max length: $x5.\n";
+print scalar(keys(%gene_info)), " genes found. Max length: $max_gene_len.\n";
+@seq_files = undef;
 
-print "Calculating... ";
-if ($Restrict > 0) {
-  open (RES_FILE3, ">", $WorkDir."r-table_all_re.txt") or die "$!";
-    print RES_FILE3 "\nRestricted results file\nGenes energies\nGene\tmiRNA\tNumber\tPosition\tWhere\tEnergy (kcal/mol)\tP\tScore\tmir-len\tmir-gen\tmir-chr\n";
-}
-if ($SeedSearch > 0) {
-  open (RES_FILE4, ">", $WorkDir."r-results_all_seed.txt") or die "$!";
-  print RES_FILE4 "\nGenes with seed more than $SeedSearch\nGene\tmiRNA\tLoops\tNumber\tPosition\tWhere\tEnergy (kcal/mol)\tPicture\n";
-}
-open (RES_FILE2, ">", $WorkDir."r-table_all.txt") or die "$!";
-  print "\n  Calculating miRNAs self-energies...\n" if $BeVerbose > 0;
-  print RES_FILE2 "miRNAs energies\nmiRNA\tEnergy (kcal/mol)\tPosition\tLength\tGC content\tGene\tChromosome\n";
-  foreach $x2 (@MirFiles) {
-    print "    $x2\n" if $BeVerbose > 0;
-    $x2d = $WorkDir.$x2;
-    $x2q = "";
-    open (X2, "<", $x2d) or die "$!";
-      while($string = <X2>) {
-      chomp($string);
-        if ($string !~ m/^\>/) {
-          $x2q .= $string;
-        }
-        else {
-          $string =~ s/^\>//;
-          @MirPos = split (/$Splitter/, $string);
-          $MirPos[0] =~ s/\s//g;
-          $x2mn = splice @MirPos, 0, 1;
-        }
-      }
-      $x2qc = NucCompl($x2q, "CR");
-    close X2;
-    
-    $x3 = (open RNAHYBDRID_READ, "RNAhybrid -d -nan,-nan -t $x2d $x2qc |") or die "$!";
+# Collect whole information in file r-table_all.txt
+print "Calculating miRNA-miRNA energy... ";
+open(RES_ALL, ">", $work_dir."/r-table_all.txt") or die "$!";
+  # For miRNA
+  print RES_ALL "miRNAs energy\nmiRNA\tEnergy (kcal/mol)\tPosition\tLength\tGC content\tGene\tChromosome\n";
+  foreach (keys(%mir_info)) {
+    print "\rCalculating miRNA-miRNA energy... ", $_;
+    open(RNAHYBDRID_READ, "RNAhybrid -d -nan,-nan ".
+          $mir_info{$_}->{"Sequence"}." ".
+          nuc_compl($mir_info{$_}->{"Sequence"}, "CR").
+          " |") or die "$!";
       while ($string = <RNAHYBDRID_READ>) {
-        if ($string =~ m/^target:/) {
-          chomp $string;
-          @stringst = split(/\s*:\s*/, $string);
-          $string = "";
-          $strings = "";
-          until ($string =~ m/^miRNA  3'/) {
-            if ($string =~ m/^mfe:/) {
-              chomp $string;
-              @stringse = split(/\s*:\s*/, $string);
-              $stringse[1] =~ s/\s*kcal\/mol//;
-              $MirInfo{$stringst[1]}->{"nrg"} = $stringse[1];
-              $string = "";
-            }
-            if ($string =~ m/^position/) {
-              chomp $string;
-              @stringsp = split(/ /, $string);
-              $string = "";
-            }
-            if ($string =~ m/^miRNA :/ || 
-                $string =~ m/^length/  ||
-                $string =~ m/^p-value/ ||
-                $string =~ m/^\n/) {
-              $string = "";
-            }
-              $strings .= $string;
-              $string = <RNAHYBDRID_READ>;
-            }
-            $strings .= $string;
-            print RES_FILE2 $stringst[1], "\t", $stringse[1], "\t", $stringsp[-1], "\t",
-            $MirInfo{$stringst[1]}->{Length}, "\t", $MirInfo{$stringst[1]}->{GC}, "\t",
-            $MirInfo{$stringst[1]}->{"Gene-ori"}, "\t", $MirInfo{$stringst[1]}->{Chr}, "\n";
-          }
-        }
+        $mir_info{$_}->{"Energy"} = $1 if ( $string =~ m/^mfe\:\s+(\-?\d+.*)\s+kcal\/mol/ );
+        $pos = $1 if ( $string =~ m/^position\s+(\d+)/ );
+      }
       close RNAHYBDRID_READ;
+      print RES_ALL $_, "\t", $mir_info{$_}->{"Energy"}, "\t",
+        $pos, "\t", $mir_info{$_}->{"Length"}, "\t",
+        $mir_info{$_}->{"GC"}, "\t",
+        $mir_info{$_}->{"Gene-origin"}, "\t",
+        $mir_info{$_}->{"Chromosome"}, "\n";
   }
 
-print RES_FILE2 "\nGenes information\nGene\tLength\t5-utr\tcoding\t3-utr\tGC-content (all)";
-if ($DifferentReuslts > 0) {
-  print RES_FILE2 "\tGC-content (5-utr)\tGC-content (cds)\tGC-content (3-utr)";
-}
-print RES_FILE2 "\n";
-foreach (sort keys %GeneInfo) {
-  print RES_FILE2 $_, "\t", $GeneInfo{$_}->{"Length"}, "\t",
-  $GeneInfo{$_}->{"Coord"}->[0], "-", $GeneInfo{$_}->{"Coord"}->[1], "\t",
-  $GeneInfo{$_}->{"Coord"}->[2], "-", $GeneInfo{$_}->{"Coord"}->[3], "\t",
-  $GeneInfo{$_}->{"Coord"}->[4], "-", $GeneInfo{$_}->{"Coord"}->[5], "\t",
-  $GeneInfo{$_}->{"GC"}->{"All"};
-  if ($DifferentReuslts > 0) {
-    print RES_FILE2 "\t", $GeneInfo{$_}->{"GC"}->{"5-utr"}, "\t",
-    $GeneInfo{$_}->{"GC"}->{"cds"}, "\t", $GeneInfo{$_}->{"GC"}->{"3-utr"};
+  # For genes
+  print RES_ALL "\nGenes information\nGene\tLength\t5-utr\tcoding\t3-utr\tGC-content (all)";
+  if ($different_results > 0) {
+    print RES_ALL "\tGC-content (5-utr)\tGC-content (cds)\tGC-content (3-utr)";
   }
-  print RES_FILE2 "\n";
-}
-print "  Calculating Gene-miRNA energies...\n" if $BeVerbose > 0;
-print RES_FILE2 "\nGenes energies\nGene\tmiRNA\tLoops\tNumber\tPosition\tWhere\tEnergy (kcal/mol)\tDelta energy\tSD\tT\tP\tScore\tmir-len\tp-ori\tmir-gen\tmir-chr\n";
-foreach $x1 (@GeneFiles) {
-  print "    $x1\n" if $BeVerbose > 0;
-  ($x1b, $x1p, $x1e) = fileparse($WorkDir.$x1, '\..*');
-  $x1d = $WorkDir.$x1;
-  $x1r = $WorkDir."r-results_$x1b.txt";
-  open (RES_FILE, ">", $x1r) or die "$!";
-  print RES_FILE "\nGene\tmiRNA\tLoops\tNumber\tPosition\tWhere\tEnergy (kcal/mol)\tScore\tPicture\n";
-  foreach $x2 (@MirFiles) {
-    $x2d = $WorkDir.$x2;
-    foreach $x4 ("1+1") { # "0+0", "2+2", "3+3") {
-      $num = 0;
-      @x4s = split(/\+/, $x4);
-      $x3 = (open RNAHYBDRID_READ, "RNAhybrid -d -nan,-nan -b $HitNumber -u $x4s[0] -v $x4s[1] -m $x5 -n $x6 -t $x1d -q $x2d |") or die "$!";
-        while ($string = <RNAHYBDRID_READ>) {
-          if ($string =~ m/^target:/) {
-            $num++;
-            chomp $string;
-            @stringst = split(/\s*:\s*/, $string);
-            $string = "";
-            $strings = "";
-            until ($string =~ m/^miRNA  3'/) {
-              if ($string =~ m/^miRNA :/) {
-                chomp $string;
-                @stringsm = split(/\s*:\s*/, $string);
-                $string = "";
-              }
-              if ($string =~ m/^mfe:/) {
-                chomp $string;
-                @stringse = split(/\s*:\s*/, $string);
-                $stringse[1] =~ s/\s*kcal\/mol//;
-                $string = "";
-              }
-              if ($string =~ m/^position/) {
-                chomp $string;
-                @stringsp = split(/ /, $string);
-                $strings_pos = $stringsp[-1];
-                
-                if ($#{$GeneInfo{$stringst[1]}->{"Coord"}} == -1) {
-                  $strings_pos .= "\tunknown";
-                }
-                elsif ($stringsp[-1] <= $GeneInfo{$stringst[1]}->{"Coord"}->[1]) {
-                  $strings_pos .= "\t5-utr";
-                }
-                elsif ($GeneInfo{$stringst[1]}->{"Coord"}->[2] <= $stringsp[-1] &&
-                       $stringsp[-1] <= $GeneInfo{$stringst[1]}->{"Coord"}->[3]) {
-                  $strings_pos -= ($GeneInfo{$stringst[1]}->{"Coord"}->[2]-1) if $DifferentReuslts > 0;
-                  $strings_pos .= "\tcoding";
-                }
-                elsif ($stringsp[-1] >= $GeneInfo{$stringst[1]}->{"Coord"}->[4]) {
-                  $strings_pos -= ($GeneInfo{$stringst[1]}->{"Coord"}->[4]-1) if $DifferentReuslts > 0;
-                  $strings_pos .= "\t3-utr";
-                  }
-                else {
-                  $strings_pos .= "\tunknown";
-                }
-                $string = "";
-              }
-              if ($string =~ m/^length/ || $string =~ m/^p-value/ || $string =~ m/^\n/) {
-                $string = "";
-              }
-              $strings .= $string;
-              $string = <RNAHYBDRID_READ>;
-            }
-            $strings .= $string;
-            
-            if ($SeedSearch > 0) {
-              if ($strings =~ m/[ACGU]{$SeedSearch}/i) {
-                print RES_FILE4 "\n$stringst[1]\t$stringsm[1]\t$x4\t$num\t$strings_pos\t$stringse[1]\t see next line \n$strings\n";
-              }
-            }
-
-            $delta = $stringse[1]-($MirInfo{$stringsm[1]}->{nrg}/2);
-            $sd = 0.031 * $MirInfo{$stringsm[1]}->{nrg};
-            $t = $delta/$sd;
-            $po = Statistics::Distributions::tprob(4, $t);
-            if ($MirInfo{$stringsm[1]}->{Length} <= 21) {
-              $p = $po * $Restrictions{$MirInfo{$stringsm[1]}->{Length}}->[1];
-            }
-            elsif ($MirInfo{$stringsm[1]}->{Length} >= 22) {
-              $p = $po / $Restrictions{$MirInfo{$stringsm[1]}->{Length}}->[1];
-            }
-            $score = 100*($stringse[1]/$MirInfo{$stringsm[1]}->{nrg});
-
-            print RES_FILE "\n$stringst[1]\t$stringsm[1]\t$x4\t$num\t$strings_pos\t$stringse[1]\t$score\t see next line \n$strings\n";
-
-            print RES_FILE2 $stringst[1], "\t", $stringsm[1], "\t", $x4, "\t", $num, 
-            "\t", $strings_pos, "\t", $stringse[1], "\t", $delta, "\t", $sd, "\t",
-            $t, "\t", $p, "\t", $score, "\t", $MirInfo{$stringsm[1]}->{Length},
-            "\t", $po, "\t", $MirInfo{$stringsm[1]}->{"Gene-ori"}, "\t",
-            $MirInfo{$stringsm[1]}->{Chr}, "\n";            
-
-            if ($Restrict > 0) {
-              if ($score >= $Restrictions{$MirInfo{$stringsm[1]}->{Length}}->[0]) {
-                print RES_FILE3 $stringst[1], "\t", $stringsm[1], "\t", $num, "\t", $strings_pos,
-                "\t", $stringse[1], "\t", $p, "\t", $score, "\t", $MirInfo{$stringsm[1]}->{Length},
-                "\t", $MirInfo{$stringsm[1]}->{"Gene-ori"}, "\t", $MirInfo{$stringsm[1]}->{Chr}, "\n";
-              }
-            }
-          }
-        }
-      close RNAHYBDRID_READ;
+  print RES_ALL "\n";
+  foreach ( keys(%gene_info) ) {
+    print RES_ALL $_, "\t", $gene_info{$_}->{"Length"}, "\t",
+    $gene_info{$_}->{"Coord"}->[0], "-", $gene_info{$_}->{"Coord"}->[1], "\t",
+    $gene_info{$_}->{"Coord"}->[2], "-", $gene_info{$_}->{"Coord"}->[3], "\t",
+    $gene_info{$_}->{"Coord"}->[4], "-", $gene_info{$_}->{"Coord"}->[5], "\t",
+    $gene_info{$_}->{"GC"}->{"All"};
+    if ( $different_results > 0 ) {
+      print RES_ALL "\t", $gene_info{$_}->{"GC"}->{"5-utr"}, "\t",
+      $gene_info{$_}->{"GC"}->{"cds"}, "\t", $gene_info{$_}->{"GC"}->{"3-utr"};
     }
+    print RES_ALL "\n";
   }
-  close RES_FILE;
-}
-close RES_FILE2;
-if ($Restrict > 0) {close RES_FILE3;}
-if ($SeedSearch > 0) {close RES_FILE4;}
 
-print "done.\n";
+  # Calculate energy
+  print "\rCalculating miRNA-miRNA energy... Done.\nCalculating Gene-miRNA energy... ";
+  print RES_ALL "\nGenes energies\nGene\tmiRNA\tNumber\tPosition".
+  "\tWhere\tEnergy (kcal/mol)\tDelta energy\tSD\tT\tP\tScore\tmir-len".
+  "\tmir-gen\tmir-chr\n";
+  foreach $gene (keys(%gene_info)) {
+    $file = $all_in_one ?
+      $work_dir."/r-results_all.txt" :
+      $work_dir."/r-results_".fileparse($gene_info{$gene}->{"File"}, '\..*').".txt";
+    open(RES_GENE, ">>", $file) or die "$!";
+      print RES_GENE "\nGene\tmiRNA\tNumber\tPosition\tWhere\t".
+      "Energy (kcal/mol)\tScore\tPicture\n";
+      foreach $mir (keys(%mir_info)) {
+        print "\rCalculating Gene-miRNA energy... ", $gene, " + ", $mir;
+        $num = 0;
+        open (RNAHYBDRID_READ, "RNAhybrid -d -nan,-nan -b ".
+               $hit_number. "-u 1 -v 1 -m $max_gene_len -n $max_mir_len -t".
+               $gene_info{$gene}->{"File"}." ".
+               $mir_info{$mir}->{"Sequence"}." |") or die "$!";
+          while ($string = <RNAHYBDRID_READ>) {
+            if ($string =~ m/^target\:\s+$gene/) {
+              $content = "";
+              $num++;
+              until ($string =~ m/^miRNA\s+3\'/) {
+                $string = <RNAHYBDRID_READ>;
+                $mfe = $1 if ($string =~ m/^mfe\:\s+(\-?\d+.*)\s+kcal\/mol/);
+                $content .= $string if ($string =~ m/^target\s5\'|^\s{2,}|^miRNA\s+3\'/);
 
-exit $x3;
+                if ($string =~ m/^position\s+(\d+)/) {
+                  $pos = $1;
+                  if ($#{$gene_info{$gene}->{"Coord"}} == -1) {
+                    $pos .= "\tunknown";
+                  }
+                  elsif ($pos <= $gene_info{$gene}->{"Coord"}->[1]) {
+                    $pos .= "\t5-utr";
+                  }
+                  elsif ($pos >= $gene_info{$gene}->{"Coord"}->[2] &&
+                         $pos <= $gene_info{$gene}->{"Coord"}->[3]) {
+                    $pos .= "\tcoding";
+                  }
+                  elsif ($pos >= $gene_info{$gene}->{"Coord"}->[4]) {
+                    $pos .= "\t3-utr";
+                    }
+                  else {
+                    $pos .= "\tunknown";
+                  }
+                }
+              }
+
+              $delta = $mfe - ($mir_info{$mir}->{"Energy"}/2);
+              $value_sd = 0.031 * $mir_info{$mir}->{"Energy"};
+              $value_t = $delta/$value_sd;
+              $value_p = tprob(4, $value_t);
+              if ( $mir_info{$mir}->{"Length"} <= 21 ) {
+                $value_p *= $restrictions{$mir_info{$mir}->{"Length"}}->[1];
+              }
+              elsif ( $mir_info{$mir}->{"Length"} >= 22 ) {
+                $value_p /= $restrictions{$mir_info{$mir}->{"Length"}}->[1];
+              }
+              $score = 100*($mfe/$mir_info{$mir}->{"Energy"});
+
+              $string = "$gene\t$mir\t$num\t$pos\t$mfe\t$score\tLook at next line\n$content\n";
+              $tmp = "$gene\t$mir\t$num\t$pos\t$mfe\t$delta\t$value_sd".
+                     "\t$value_t\t$value_p\t$score\t$mir_info{$mir}->{\"Length\"}".
+                     "\t$mir_info{$mir}->{\"Gene-origin\"}".
+                     "\t$mir_info{$mir}->{\"Chromosome\"}\n";
+              if ( $seed_search > 0 &&
+                   $content =~ m/[ACGU]{$seed_search}\s{3,4}$/im ) {
+                print RES_GENE $string;
+                print RES_ALL $tmp;
+              }
+              elsif ( $seed_search == 0 ) {
+                print RES_GENE $string;
+                print RES_ALL $tmp;
+              }
+            }
+          }
+        close RNAHYBDRID_READ;
+      }
+    close RES_GENE;
+  }
+close RES_ALL;
+print "\rCalculating Gene-miRNA energy... Done.\n";
 
 ########################################################
-# Constructing the complementary sequence - from
-# Arabella::Sequencer
-########################################################
-sub NucCompl ($$) {
-  my $Sequence = $_[0];
-  my $ReverseComplement = uc($_[1]);
+# Construct the complementary sequence
+sub nuc_compl {
+  my $sequence = $_[0];
+  my $rev_com = uc($_[1]);
   my @symbols = undef;
   my $i = 0;
  
-  if ($ReverseComplement =~ m/C/) {
-  @symbols = split (//, $Sequence);
+  if ($rev_com =~ m/C/) {
+    @symbols = split (//, $sequence);
     for ($i = 0; $i < ($#symbols+1); $i++) {
-      if($symbols[$i] eq "a") { $symbols[$i] = "t"; next; }
       if($symbols[$i] eq "a") { $symbols[$i] = "u"; next; }
-      if($symbols[$i] eq "t") { $symbols[$i] = "a"; next; }
       if($symbols[$i] eq "u") { $symbols[$i] = "a"; next; } 
       if($symbols[$i] eq "g") { $symbols[$i] = "c"; next; }
       if($symbols[$i] eq "c") { $symbols[$i] = "g"; next; }    
-      if($symbols[$i] eq "A") { $symbols[$i] = "T"; next; }
       if($symbols[$i] eq "A") { $symbols[$i] = "U"; next; }
-      if($symbols[$i] eq "T") { $symbols[$i] = "A"; next; }
       if($symbols[$i] eq "U") { $symbols[$i] = "A"; next; }
       if($symbols[$i] eq "G") { $symbols[$i] = "C"; next; }
-      if($symbols[$i] eq "C") { $symbols[$i] = "G"; next; }
-      if($symbols[$i] eq "N") { $symbols[$i] = "N"; }    
+      if($symbols[$i] eq "C") { $symbols[$i] = "G"; }
     }   
-    $Sequence = join ("", @symbols);
+    $sequence = join ("", @symbols);
   }
-  $Sequence = reverse($Sequence) if $ReverseComplement =~ m/R/;
-  return $Sequence;
+  $sequence = reverse($sequence) if $rev_com =~ m/R/;
+  return $sequence;
 }
-########################################################
 
-sub UsageVersion ($) {
-  print "\n$PNAME\n";
-  print "\nBy Charles Malaheenee (C) 2012";
+########################################################
+# Usage & versioninformation
+sub use_ver {
+  print "\nRNAhybrid enhanced 22\n";
+  print "\nBy Charles Malaheenee (C) 2016";
   print "\nUsage: $0 [options] directory\n\n";
   print "Options:\n";
-  print "-h, --help \t print this help text\n";
-  print "-b number \t Maximal number of hits to show (default 5)\n";
-  print "-d \t\t Differencial results (default no)\n";
-  print "-r \t\t Restricted result data (default no)\n";
-  print "-v \t\t Be verbose (default no)\n";
-  print "--seed=number \t Seed search (default no)";
+  print "-b number    Maximal number of hits to show (default 5)\n";
+  print "-s number    Seed search (default none)\n";
+  print "-a           All genes in one file (default none)\n";
+  print "-d           Differencial results (default none)\n";
+  print "-h           Print this help text\n";
   print "\nReport bugs to ", 'malaheenee@gmx.fr', "\n\n";
   exit 0;
 }
